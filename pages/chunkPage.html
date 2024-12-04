@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>File Chunk Upload</title>
+		<style>
+      button {
+        cursor: pointer;
+      }
+			#progressBar {
+				width: 100%;
+				height: 20px;
+				background-color: #f3f3f3;
+			}
+			#progress {
+				height: 100%;
+				background-color: #4caf50;
+			}
+      #response {
+        margin-top: 20px;
+        font-size: 16px;
+      }
+		</style>
+	</head>
+	<body>
+		<h1>Upload File with Chunks</h1>
+
+		<input type="file" id="fileInput" />
+		<button onclick="startUpload()">开始上传</button>
+		<button id="pauseBtn">暂停</button>
+		<button id="resumeBtn">继续</button>
+
+		<div id="progressBar" style="display: none">
+			<div id="progress"></div>
+		</div>
+
+    <div id="response"></div>
+
+		<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+		<script>
+			const CHUNK_SIZE = 1 * 1024 * 1024; // 每个分片 10MB
+			const UPLOAD_CHUNK_URL = 'http://127.0.0.1:3000/ck/upload'; // 后端上传分片接口
+			const UPLOAD_MERGE_URL = 'http://127.0.0.1:3000/ck/merge'; // 后端合并分片接口
+			const UPLOAD_CHECK_URL = 'http://127.0.0.1:3000/ck/progress'; // 后端合并分片接口
+
+			const fileInput = document.getElementById('fileInput');
+			const progressBar = document.getElementById('progressBar');
+			const progress = document.getElementById('progress');
+			const pauseBtn = document.getElementById('pauseBtn'); // 暂停按钮
+			const resumeBtn = document.getElementById('resumeBtn'); // 恢复按钮
+      const responseDiv = document.getElementById('response');
+
+			let isPaused = false;
+
+			pauseBtn.addEventListener('click', () => {
+				isPaused = true;
+				console.log('暂停上传');
+			});
+			resumeBtn.addEventListener('click', () => {
+				if (isPaused) {
+					isPaused = false;
+					startUpload();
+				}
+			});
+
+			async function startUpload() {
+				const file = fileInput.files[0];
+				if (!file) {
+					alert('请选择一个文件');
+					return;
+				}
+
+				let totalChunks = Math.ceil(file.size / CHUNK_SIZE); // 总分片数量
+				let chunkIndex = 0; // 当前分片索引
+
+				// 初始化进度条样式
+				progressBar.style.display = 'block';
+				progress.style.width = '0%';
+
+				try {
+					// 检查已上传的分片
+					const res = await axios.post(UPLOAD_CHECK_URL, {
+						fileName: file.name,
+					});
+
+					// 检查是否有已上传的分片
+					if (res.data && Object.keys(res.data).includes('data')) {
+						let uploadedChunks = res.data.data || [];
+						chunkIndex = Number(uploadedChunks[uploadedChunks.length - 1]) + 1;
+					}
+
+					// 开始分片上传
+					uploadChunks(file, chunkIndex, totalChunks);
+				} catch (error) {
+					console.log('Error fetching upload status', error);
+				}
+			}
+
+			function uploadChunks(file, chunkIndex, totalChunks) {
+				if (isPaused) return;
+
+        // 如果分片数大于来总分片数，合并分片
+				if (chunkIndex >= totalChunks) {
+					console.log(`${file.name} - All chunks uploaded successfully`);
+
+					// 所有分片上传完成后，发送合并请求
+					axios
+						.post(UPLOAD_MERGE_URL, {
+							fileName: file.name,
+							totalChunks: totalChunks,
+						})
+						.then(function (res) {
+							console.log('File merged successfully');
+              displayResponse('File merged successfully')
+							progressBar.style.display = 'none';
+						})
+						.catch(function (error) {
+							console.error('Error merging file', error);
+						});
+
+          return ;
+				}
+
+				const start = chunkIndex * CHUNK_SIZE;
+				const end = Math.min(start + CHUNK_SIZE, file.size);
+				const chunk = file.slice(start, end);
+
+				// 后端使用了multer进行文件接收，因此需要将二进制流的分块处理为文件对象
+				let chunkFile = new File([chunk], file.name);
+
+				// 创建 FormData 对象并添加分片数据
+				const formData = new FormData();
+				formData.append('file', chunkFile);
+				formData.append('fileName', file.name);
+				formData.append('chunkIndex', chunkIndex);
+				formData.append('totalChunks', totalChunks);
+
+				// 希望是后端处理分片文件的命名
+				// muter解析文件是异步，如果直接将分片信息放到formData中，后端req.body没法第一时间获取，因此放到params中使用req.query获取（偏方）
+				axios
+					.post(UPLOAD_CHUNK_URL, formData, {
+						headers: {
+							'Content-Type': 'multipart/form-data',
+						},
+						onUploadProgress: function (event) {
+							// 进度条更新
+							if (event.lengthComputable) {
+								const percent = Math.floor((chunkIndex / (totalChunks - 1)) * 100);
+								progress.style.width = percent + '%';
+							}
+						},
+					})
+					.then(function (response) {
+						if (response.data && response.data.code === 0) {
+							console.log(`Chunk ${chunkIndex} uploaded successfully`);
+              uploadChunks(file, chunkIndex + 1, totalChunks);
+						}
+					})
+					.catch(function (error) {
+						console.error(`Error uploading chunk ${chunkIndex}`, error);
+					});
+			}
+
+      function displayResponse(data) {
+        responseDiv.innerHTML = `<strong>上传成功!</strong><br>文件信息：<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      }
+		</script>
+	</body>
+</html>

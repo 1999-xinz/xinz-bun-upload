@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Upload</title>
+    <style>
+      button {
+        cursor: pointer;
+      }
+      #response {
+        margin-top: 20px;
+        font-size: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Upload Common File</h1>
+
+    <input type="file" id="fileInput" />
+    <button onclick="startUpload()">开始上传</button>
+
+    <div id="response"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+      const UPLOAD_COMMON_URL = 'http://127.0.0.1:3000/cn/upload'; // 后端上传接口
+
+      const fileInput = document.getElementById('fileInput');
+      const responseDiv = document.getElementById('response');
+
+      async function startUpload() {
+        const file = fileInput.files[0];
+        if (!file) {
+          alert('请选择一个文件');
+          return;
+        }
+
+        uploadFile(file);
+      }
+
+      function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        axios
+          .post(UPLOAD_COMMON_URL, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            }
+          })
+          .then(function (response) {
+            if (response.data && response.data.code === 0) {
+              setTimeout(() => {
+                displayResponse(response.data);
+              }, 500); // 延迟展示，确保进度条完成
+            }
+          })
+          .catch(function (error) {
+            console.error(`Error uploading ${file.name}`, error);
+            setTimeout(() => {
+              displayResponse(error.response.data);
+            }, 500); // 延迟展示，确保进度条完成
+          });
+      }
+
+      function displayResponse(data) {
+        responseDiv.innerHTML = `<strong>上传成功!</strong><br>文件信息：<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      }
+    </script>
+  </body>
+</html>
